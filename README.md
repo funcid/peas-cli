@@ -7,7 +7,7 @@
 3. **High:** Сервер может находиться в другом регионе, что сильно повышает latency
 4. **High:** Протокол загрузки сильно зависит от дистрибьютора, поэтому может быть использован неоптимальный
 
-![Централизованная раздача файла (1).png](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/9ca0c609-73fb-430c-ab51-5657a509f513/%D0%A6%D0%B5%D0%BD%D1%82%D1%80%D0%B0%D0%BB%D0%B8%D0%B7%D0%BE%D0%B2%D0%B0%D0%BD%D0%BD%D0%B0%D1%8F_%D1%80%D0%B0%D0%B7%D0%B4%D0%B0%D1%87%D0%B0_%D1%84%D0%B0%D0%B9%D0%BB%D0%B0_(1).png)
+![Централизованная раздача файла (1) (1)](https://user-images.githubusercontent.com/42806772/232248325-082f44df-d2e4-4f5c-b4c0-e0862b7ea90a.png)
 
 **Решение:**
 
@@ -20,8 +20,8 @@
 3. Сервер записывает адрес нашего клиента в этот же .peas файл и уведомляет всех трекеров
 4. Клиент, наблюдая в .peas файле, таких же клиентов, начинает запрашивать у них партиции       
     
-    ![Untitled](https://s3-us-west-2.amazonaws.com/secure.notion-static.com/972815a6-ac1b-4252-ba57-8888ee66a033/Untitled.png)
-    
+    ![Untitled](https://user-images.githubusercontent.com/42806772/232248309-52c1e6de-1f58-42d6-910c-a00761f0bec3.png)
+
 
 **Область применения:**
 
