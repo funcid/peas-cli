@@ -34,7 +34,7 @@ public final class Multicast {
 	public void init() {
 		var listenerThread = new Thread(() -> {
 			try (var socket = new MulticastSocket(PORT)) {
-				socket.joinGroup(new InetSocketAddress(GROUP, PORT), NetworkInterface.getByInetAddress(GROUP));
+				socket.joinGroup(new InetSocketAddress(GROUP, PORT), null);
 
 				var buf = new byte[9];
 				while (true) {

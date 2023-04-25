@@ -4,6 +4,7 @@ import picocli.CommandLine.Parameters;
 
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
+import java.util.concurrent.locks.LockSupport;
 
 import static picocli.CommandLine.Command;
 
@@ -12,7 +13,7 @@ final class PeasCommand implements Callable<Integer> {
 	@Parameters(index = "0")
 	private Path file;
 
-	@Option(names = "daemon", negatable = true)
+	@Option(names = "--daemon", negatable = true)
 	private boolean daemon = false; // true;
 
 	@Option(names = "upload")
@@ -28,6 +29,7 @@ final class PeasCommand implements Callable<Integer> {
 
 		if (this.upload) {
 			app.upload(PeasFile.from(this.file));
+			LockSupport.park(); // TODO
 		} else {
 			app.download(PeasFile.from(this.file));
 		}

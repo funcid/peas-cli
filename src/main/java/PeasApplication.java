@@ -1,9 +1,7 @@
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -16,19 +14,20 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 
 public final class PeasApplication {
+	public static final String LOCKFILE_NAME = "peas.lock";
+
 	private final Path peasDirectory;
+	private final Path lockfilePath;
+
 	private final boolean daemon;
 
 	private final Map<Long, Path> files = new HashMap<>();
+	private final Map<Long, OpenFile> openFiles = new HashMap<>();
 	private final Map<Long, List<InetAddress>> trackers = new HashMap<>();
 	private final HttpClient httpClient = HttpClient.newBuilder().build();
 	private final Multicast multicast = new Multicast(this);
@@ -43,23 +42,29 @@ public final class PeasApplication {
 			throw new UnsupportedOperationException("daemon");
 		}
 
+		this.lockfilePath = peasDirectory.resolve(LOCKFILE_NAME);
+
 		Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 			try {
-				Files.deleteIfExists(this.peasDirectory.resolve("peas.lock"));
+				Files.deleteIfExists(this.lockfilePath);
 			} catch (IOException e) {
-				throw new IllegalStateException("Failed to delete lockfile", e);
+				throw new IllegalStateException("Failed to release(delete) lockfile", e);
 			}
 		})); // TODO: Переписать
 	}
 
 	public void init() {
-		var lockfile = peasDirectory.resolve("peas.lock");
+		try {
+			Files.createDirectories(this.peasDirectory);
+		} catch (IOException e) {
+			throw new IllegalStateException("Failed to create peas directory", e);
+		}
 
-		if (!Files.exists(lockfile)) {
+		if (!Files.exists(this.lockfilePath)) {
 			try {
-				Files.createFile(lockfile);
+				Files.createFile(this.lockfilePath);
 			} catch (IOException e) {
-				throw new IllegalStateException("Failed to create lockfile", e);
+				throw new IllegalStateException("Failed to acquire(create) lockfile", e);
 			}
 		}
 
@@ -74,11 +79,37 @@ public final class PeasApplication {
 					track.add(exchange.getRemoteAddress().getAddress());
 					this.trackers.put(hash, track);
 
-					exchange.getResponseBody().write("ok".getBytes(StandardCharsets.UTF_8));
+					var res = "ok".getBytes(StandardCharsets.UTF_8);
+					exchange.sendResponseHeaders(200, res.length);
+					exchange.getResponseBody().write(res);
+					exchange.getResponseBody().close();
 				}
 			});
-			server.createContext("/part", exchange -> {
-				// TODO: How to get ?aa=b&b=a params ?
+			server.createContext("/get", exchange -> {
+				try {
+					var args = WeNeedCuteHttpClientAndServer.queryToMap(exchange.getRequestURI().getQuery());
+					var hash = Long.parseLong(args.get("h"));
+					var bytes = Long.parseLong(args.get("b"));
+					var offset = Long.parseLong(args.get("o"));
+
+					var mbb = this.openFiles.computeIfAbsent(hash, h -> {
+						try {
+							var f = new RandomAccessFile(this.files.get(h).toFile(), "r");
+							var bb = f.getChannel().map(FileChannel.MapMode.READ_ONLY, 0, f.length());
+							return new OpenFile(f, bb);
+						} catch (IOException e) {
+							throw new RuntimeException(e);
+						}
+					}).mbb();
+
+					var part = new byte[(int) bytes];
+					mbb.get((int) offset, part);
+					exchange.sendResponseHeaders(200, bytes);
+					exchange.getResponseBody().write(part);
+					exchange.getResponseBody().close();
+				} catch (Throwable t) {
+					t.printStackTrace();
+				}
 			});
 
 			server.setExecutor(Executors.newFixedThreadPool(16));
@@ -93,52 +124,50 @@ public final class PeasApplication {
 	}
 
 	public void download(PeasFile file) throws IOException {
+		this.trackers.put(file.hash(), Arrays.asList(file.owners()));
 		this.multicast.send(new Multicast.MulticastMessage(file.hash()));
 		var secN = 0;
+		var f = new File(file.filename());
+		f.createNewFile();
 		var rf = new RandomAccessFile(file.filename(), "rw");
 		rf.setLength(file.size());
 		var mbb = rf.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, rf.length());
 
-		while (true) {
-			if (secN > file.partitions().length) break;
+		var tr = this.trackers.get(file.hash());
 
-			var tr = this.trackers.get(file.hash());
-			if (tr.isEmpty()) {
-				try {
-					TimeUnit.SECONDS.sleep(1);
-				} catch (InterruptedException e) {
-					throw new RuntimeException(e);
-				}
-				continue;
-			}
-
-			var tracker = tr.get(ThreadLocalRandom.current().nextInt(0, tr.size() - 1));
+		while (secN < file.partitions().length) {
+			var tracker = tr.get(ThreadLocalRandom.current().nextInt(0, tr.size()));
 
 			try {
-				var res = httpClient.send(HttpRequest.newBuilder(
-					new URI("http://" + tracker.getHostAddress() + ":8686/get?sl=" + file.paritionSize() + "&s=" + secN++)
-				).build(), HttpResponse.BodyHandlers.ofByteArray());
+				var res = httpClient.send(
+					HttpRequest.newBuilder(
+						new URI("http://" + tracker.getHostAddress() + ":8686/get?h=" + file.hash() + "&b=" + file.paritionSize() + "&o=" + mbb.position())
+					).build(),
+					HttpResponse.BodyHandlers.ofByteArray()
+				);
 
 				mbb.put(res.body());
+				secN++;
 			} catch (InterruptedException | URISyntaxException e) {
 				throw new RuntimeException(e);
 			}
 		}
 
+		rf.close();
 		System.out.println("downloaded");
 	}
 
 	public void multicastMessageReceived(Multicast.MulticastMessage msg, InetAddress addr) {
-		if (files.containsKey(msg.hash())) {
-			try {
-				var req = HttpRequest.newBuilder(new URI("http://" + addr.getHostAddress() + ":8686/notify"))
-					.POST(HttpRequest.BodyPublishers.ofString("me|" + msg.hash()))
-					.build();
+		if (!files.containsKey(msg.hash())) return;
 
-				httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString());
-			} catch (URISyntaxException e) {
-				throw new RuntimeException(e);
-			}
+		try {
+			var req = HttpRequest.newBuilder(new URI("http://" + addr.getHostAddress() + ":8686/notify"))
+				.POST(HttpRequest.BodyPublishers.ofString("me|" + msg.hash()))
+				.build();
+
+			httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString());
+		} catch (URISyntaxException e) {
+			throw new RuntimeException(e);
 		}
 	}
 }

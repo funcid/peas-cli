@@ -1,9 +1,14 @@
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
+import com.esotericsoftware.kryo.serializers.DefaultSerializers;
 import net.openhft.hashing.LongHashFunction;
 
 import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -18,19 +23,21 @@ public record PeasFile(
 	long hash, // XXH3
 	Partition[] partitions,
 	LocalDateTime createdAt,
-	int[] owners // IP // TODO: Use InetSocketAddress
+	InetAddress[] owners
 ) {
 	private static final Kryo kryo = new Kryo();
 	static {
-		kryo.register(int[].class);
 		kryo.register(LocalDateTime.class);
-		kryo.register(Partition[].class);
+		kryo.register(Inet4Address.class, InetAddressSerializers.Inet4AddresSerializer.INSTANCE);
+		kryo.register(Inet6Address.class, InetAddressSerializers.Inet6AddresSerializer.INSTANCE);
+		kryo.register(InetAddress[].class);
 		kryo.register(Partition.class);
+		kryo.register(Partition[].class);
 		kryo.register(PeasFile.class);
 	}
 
 	public static int SIGNATURE = 0xFEACFEAC;
-	public static byte[] SIGNATURE_ARRAY = new byte[]{(byte) 0xfe, (byte) 0xac, (byte) 0xfe, (byte) 0xac};
+	public static byte[] SIGNATURE_ARRAY = new byte[]{(byte) 0xFE, (byte) 0xAC, (byte) 0xFE, (byte) 0xAC};
 
 	public static byte VERSION_MAJOR = 0;
 	public static byte VERSION_MINOR = 0;
@@ -82,7 +89,7 @@ public record PeasFile(
 			xx3().hashBytes(bytes),
 			partitions,
 			LocalDateTime.now(),
-			new int[0]
+			new InetAddress[] { InetAddress.getByName("192.168.1.25") }
 		).save(Path.of("/tmp/sample_file.peas"));
 	}
 
