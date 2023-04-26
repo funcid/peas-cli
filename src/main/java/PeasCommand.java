@@ -2,9 +2,9 @@ import picocli.CommandLine;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
+import java.net.NetworkInterface;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
-import java.util.concurrent.locks.LockSupport;
 
 import static picocli.CommandLine.Command;
 
@@ -29,12 +29,12 @@ final class PeasCommand implements Callable<Integer> {
 
 		if (this.upload) {
 			app.upload(PeasFile.from(this.file));
-			LockSupport.park(); // TODO
 		} else {
 			app.download(PeasFile.from(this.file));
 		}
-
-		return 0;
+		while (true) {
+			Thread.sleep(Long.MAX_VALUE);
+		}
 	}
 
 	public static void main(String... args) {

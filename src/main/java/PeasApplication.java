@@ -1,12 +1,9 @@
 import com.sun.net.httpserver.HttpServer;
+
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.net.URISyntaxException;
+import java.net.*;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -15,8 +12,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+
+import static net.openhft.hashing.LongHashFunction.xx3;
 
 public final class PeasApplication {
 	public static final String LOCKFILE_NAME = "peas.lock";
@@ -28,9 +30,10 @@ public final class PeasApplication {
 
 	private final Map<Long, Path> files = new HashMap<>();
 	private final Map<Long, OpenFile> openFiles = new HashMap<>();
-	private final Map<Long, List<InetAddress>> trackers = new HashMap<>();
 	private final HttpClient httpClient = HttpClient.newBuilder().build();
 	private final Multicast multicast = new Multicast(this);
+
+	private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
 	public PeasApplication(
 		Path peasDirectory,
@@ -75,9 +78,9 @@ public final class PeasApplication {
 				var r = req.split("\\|");
 				if (r[0].equals("me")) {
 					var hash = Long.parseLong(r[1]);
-					var track = this.trackers.getOrDefault(hash, new ArrayList<>());
-					track.add(exchange.getRemoteAddress().getAddress());
-					this.trackers.put(hash, track);
+					downloadPool.execute(() -> downloadTasks.get(hash).accept(exchange.getRemoteAddress().getAddress(), true));
+
+					System.out.println("Found new tracker for " + hash + ": " + exchange.getRemoteAddress().getAddress());
 
 					var res = "ok".getBytes(StandardCharsets.UTF_8);
 					exchange.sendResponseHeaders(200, res.length);
@@ -104,6 +107,7 @@ public final class PeasApplication {
 
 					var part = new byte[(int) bytes];
 					mbb.get((int) offset, part);
+					System.out.println("Sending " + bytes + " bytes of " + hash + " to " + exchange.getRemoteAddress().getAddress() + " from offset " + offset);
 					exchange.sendResponseHeaders(200, bytes);
 					exchange.getResponseBody().write(part);
 					exchange.getResponseBody().close();
@@ -117,57 +121,111 @@ public final class PeasApplication {
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}
+		multicast.init();
 	}
 
 	public void upload(PeasFile file) {
 		files.put(file.hash(), Path.of(file.filename()));
 	}
 
+	private final Executor downloadPool = Executors.newCachedThreadPool();
+	private final Map<Long, BiConsumer<InetAddress, Boolean>> downloadTasks = new ConcurrentHashMap<>();
+
 	public void download(PeasFile file) throws IOException {
-		this.trackers.put(file.hash(), Arrays.asList(file.owners()));
-		this.multicast.send(new Multicast.MulticastMessage(file.hash()));
-		var secN = 0;
 		var f = new File(file.filename());
 		f.createNewFile();
 		var rf = new RandomAccessFile(file.filename(), "rw");
 		rf.setLength(file.size());
 		var mbb = rf.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, rf.length());
 
-		var tr = this.trackers.get(file.hash());
+		var partitionN = new AtomicInteger();
 
-		while (secN < file.partitions().length) {
-			var tracker = tr.get(ThreadLocalRandom.current().nextInt(0, tr.size()));
+		var latch = new Phaser(1);
 
-			try {
-				var res = httpClient.send(
-					HttpRequest.newBuilder(
-						new URI("http://" + tracker.getHostAddress() + ":8686/get?h=" + file.hash() + "&b=" + file.paritionSize() + "&o=" + mbb.position())
-					).build(),
-					HttpResponse.BodyHandlers.ofByteArray()
-				);
-
-				mbb.put(res.body());
-				secN++;
-			} catch (InterruptedException | URISyntaxException e) {
-				throw new RuntimeException(e);
+		downloadTasks.put(file.hash(), (tracker, reg) -> {
+			if (reg) {
+				latch.register();
 			}
+			while (partitionN.getAcquire() < file.partitions().length) {
+				try {
+					var part = partitionN.getAndIncrement();
+					var res = httpClient.send(
+						HttpRequest.newBuilder(
+							new URI("http://" + tracker.getHostAddress() + ":8686/get"
+								+ "?h=" + file.hash()
+								+ "&b=" + file.partitionSize()
+								+ "&o=" + part * file.partitionSize())
+						).build(),
+						HttpResponse.BodyHandlers.ofByteArray()
+					);
+
+					var body = res.body();
+					var bodyHash = xx3().hashBytes(body);
+					var expectedHash = file.partitions()[part];
+					if (bodyHash != expectedHash) {
+						System.err.println("ERROR: part " + part + " downloading failed: found hash: " + bodyHash + ", expected: " + expectedHash);
+						System.exit(1);
+						return;
+					}
+
+					mbb.put((int) (part * file.partitionSize()), body, 0, body.length);
+				} catch (InterruptedException | URISyntaxException | IOException e) {
+					throw new RuntimeException(e);
+				}
+			}
+			latch.arriveAndDeregister();
+		});
+
+		latch.bulkRegister(file.owners().length);
+		for (var owner : file.owners()) {
+			downloadPool.execute(() -> downloadTasks.get(file.hash()).accept(owner, false));
 		}
 
-		rf.close();
-		System.out.println("downloaded");
+		var multicastSender = scheduler.scheduleAtFixedRate(() -> {
+			try {
+				this.multicast.send(new Multicast.MulticastMessage(Multicast.MulticastMessage.Type.FIND, file.hash()));
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
+		}, 0, 1, TimeUnit.SECONDS);
+
+		latch.arriveAndAwaitAdvance();
+		multicastSender.cancel(true);
+		try {
+			this.multicast.send(new Multicast.MulticastMessage(Multicast.MulticastMessage.Type.CANCEL, file.hash()));
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+		System.out.println("Downloaded!");
+		upload(file);
 	}
+
+	private final Set<Pair<InetAddress, Long>> knownMulticastRequesters = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
 	public void multicastMessageReceived(Multicast.MulticastMessage msg, InetAddress addr) {
 		if (!files.containsKey(msg.hash())) return;
+		var p = new Pair<>(addr, msg.hash());
+		switch (msg.type()) {
+			case FIND -> {
+				if (knownMulticastRequesters.contains(p)) return;
 
-		try {
-			var req = HttpRequest.newBuilder(new URI("http://" + addr.getHostAddress() + ":8686/notify"))
-				.POST(HttpRequest.BodyPublishers.ofString("me|" + msg.hash()))
-				.build();
+				try {
+					var req = HttpRequest.newBuilder(new URI("http://" + addr.getHostAddress() + ":8686/notify"))
+						.POST(HttpRequest.BodyPublishers.ofString("me|" + msg.hash()))
+						.build();
 
-			httpClient.sendAsync(req, HttpResponse.BodyHandlers.ofString());
-		} catch (URISyntaxException e) {
-			throw new RuntimeException(e);
+					var res = httpClient.send(
+						req,
+						HttpResponse.BodyHandlers.ofString()
+					);
+					if ("ok".equals(res.body())) {
+						knownMulticastRequesters.add(p);
+					}
+				} catch (URISyntaxException | IOException | InterruptedException e) {
+					throw new RuntimeException(e);
+				}
+			}
+			case CANCEL -> knownMulticastRequesters.remove(p);
 		}
 	}
 }

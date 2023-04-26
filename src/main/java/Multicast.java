@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.net.*;
 
 public final class Multicast {
-	public static final int PORT = Integer.getInteger("peas.multicast.port", 4608);
+	public static final int PORT = Integer.getInteger("peas.multicast.port", 4681);
 	public static final InetAddress GROUP;
 
 	static {
@@ -33,14 +33,14 @@ public final class Multicast {
 
 	public void init() {
 		var listenerThread = new Thread(() -> {
-			try (var socket = new MulticastSocket(PORT)) {
-				socket.joinGroup(new InetSocketAddress(GROUP, PORT), null);
+			try (var multicastSocket = new MulticastSocket(PORT)) {
+				multicastSocket.joinGroup(new InetSocketAddress(GROUP, PORT), null);
 
-				var buf = new byte[9];
+				var buf = new byte[10];
 				while (true) {
 					var pk = new DatagramPacket(buf, buf.length);
 					try {
-						socket.receive(pk);
+						multicastSocket.receive(pk);
 					} catch (IOException ioException) {
 						ioException.printStackTrace(); // TODO: Loggers, slf4j-simple ?
 						continue;
@@ -54,6 +54,8 @@ public final class Multicast {
 				throw new IllegalStateException("Failed to bind MulticastSocket on port " + PORT, e);
 			}
 		}, "Multicast listener");
+		listenerThread.setDaemon(true);
+		listenerThread.start();
 	}
 
 	public void send(MulticastMessage message) throws IOException {
@@ -64,16 +66,18 @@ public final class Multicast {
 	}
 	
 	public record MulticastMessage(
+		Type type,
 		long hash // XXH3
 	) {
 		private static final ThreadLocal<Kryo> KRYO_THREAD_LOCAL = ThreadLocal.withInitial(() -> {
 			var kryo = new Kryo();
+			kryo.register(Type.class);
 			kryo.register(MulticastMessage.class);
 			return kryo;
 		});
 
 		public DatagramPacket serialize() {
-			var output = new Output(9);
+			var output = new Output(10);
 			KRYO_THREAD_LOCAL.get().writeObject(output, this);
 			output.flush();
 			return new DatagramPacket(output.getBuffer(), output.position());
@@ -82,6 +86,11 @@ public final class Multicast {
 		public static MulticastMessage deserialize(DatagramPacket packet) {
 			var input = new Input(packet.getData(), packet.getOffset(), packet.getLength());
 			return KRYO_THREAD_LOCAL.get().readObject(input, MulticastMessage.class);
+		}
+
+		public enum Type {
+			FIND,
+			CANCEL
 		}
 	}
 }

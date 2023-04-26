@@ -1,14 +1,11 @@
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryo.io.Input;
 import com.esotericsoftware.kryo.io.Output;
-import com.esotericsoftware.kryo.serializers.DefaultSerializers;
-import net.openhft.hashing.LongHashFunction;
 
 import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -19,9 +16,9 @@ import static net.openhft.hashing.LongHashFunction.xx3;
 public record PeasFile(
 	String filename,
 	long size,
-	long paritionSize,
+	long partitionSize,
 	long hash, // XXH3
-	Partition[] partitions,
+	long[] partitions,
 	LocalDateTime createdAt,
 	InetAddress[] owners
 ) {
@@ -31,8 +28,7 @@ public record PeasFile(
 		kryo.register(Inet4Address.class, InetAddressSerializers.Inet4AddresSerializer.INSTANCE);
 		kryo.register(Inet6Address.class, InetAddressSerializers.Inet6AddresSerializer.INSTANCE);
 		kryo.register(InetAddress[].class);
-		kryo.register(Partition.class);
-		kryo.register(Partition[].class);
+		kryo.register(long[].class);
 		kryo.register(PeasFile.class);
 	}
 
@@ -68,18 +64,15 @@ public record PeasFile(
 		var path = Path.of("/home/u/IdeaProjects/peas-cli/samplefiles/sample_file");
 		var bytes = Files.readAllBytes(path);
 
-		var partitions = new Partition[bytes.length / 4096];
-
+		var partitions = new long[bytes.length / 4096];
 		var n = 0;
 		var partitionN = 0;
 
 		do {
 			var currN = n;
-			var hash = xx3().hashBytes(bytes, n, Math.min(n += 4096, bytes.length - currN));
-			partitions[partitionN] = new Partition(
-				partitionN++,
-				hash
-			);
+			n += 4096;
+			var hash = xx3().hashBytes(bytes, currN, 4096);
+			partitions[partitionN++] = hash;
 		} while (n < bytes.length);
 
 		new PeasFile(
@@ -92,9 +85,4 @@ public record PeasFile(
 			new InetAddress[] { InetAddress.getByName("192.168.1.25") }
 		).save(Path.of("/tmp/sample_file.peas"));
 	}
-
-	public record Partition(
-		long ordinal,
-		long hash // XXH3
-	) {}
 }
