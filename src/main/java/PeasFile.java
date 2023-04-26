@@ -6,8 +6,10 @@ import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 
@@ -61,28 +63,47 @@ public record PeasFile(
 	}
 
 	public static void main(String[] args) throws Throwable {
-		var path = Path.of("/home/u/IdeaProjects/peas-cli/samplefiles/sample_file");
-		var bytes = Files.readAllBytes(path);
+		Deencapsulation.init();
 
-		var partitions = new long[bytes.length / 4096];
-		var n = 0;
-		var partitionN = 0;
+		var path = Path.of("/home/u/IdeaProjects/peas-cli/samplefiles/unaligned");
+		try (var fc = FileChannel.open(path, StandardOpenOption.READ)) {
+			var partSize = 4096L; // 4K
 
-		do {
-			var currN = n;
-			n += 4096;
-			var hash = xx3().hashBytes(bytes, currN, 4096);
-			partitions[partitionN++] = hash;
-		} while (n < bytes.length);
+			var size = fc.size();
+			var mmap = fc.map(FileChannel.MapMode.READ_ONLY, 0, size);
 
-		new PeasFile(
-			"sample_file",
-			bytes.length,
-			4096, // 4K
-			xx3().hashBytes(bytes),
-			partitions,
-			LocalDateTime.now(),
-			new InetAddress[] { InetAddress.getByName("192.168.1.25") }
-		).save(Path.of("/tmp/sample_file.peas"));
+			if (size < partSize) {
+				partSize = size;
+			}
+
+			var partitions = new long[(int) MathUtil.divideRoundUp(size, partSize)]; // TODO: Big array
+			var n = 0;
+			var partitionN = 0;
+
+			do {
+				var currN = n;
+				n += partSize;
+				var hash = xx3().hashBytes(
+					mmap,
+					currN,
+					(int) (currN + partSize > size
+						? size - currN
+						: partSize)
+				);
+				partitions[partitionN++] = hash;
+			} while (n < size);
+
+			new PeasFile(
+				"unaligned",
+				size,
+				partSize,
+				xx3().hashBytes(mmap),
+				partitions,
+				LocalDateTime.now(),
+				new InetAddress[] { InetAddress.getByName("192.168.1.25") }
+			).save(Path.of("/tmp/unaligned.peas"));
+
+			jdk.internal.misc.Unsafe.getUnsafe().invokeCleaner(mmap);
+		}
 	}
 }

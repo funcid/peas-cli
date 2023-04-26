@@ -21,6 +21,8 @@ final class PeasCommand implements Callable<Integer> {
 
 	@Override
 	public Integer call() throws Exception {
+		Deencapsulation.init();
+
 		var app = new PeasApplication(
 			Path.of(System.getProperty("user.home")).resolve(".peas"),
 			this.daemon
@@ -33,7 +35,7 @@ final class PeasCommand implements Callable<Integer> {
 			app.download(PeasFile.from(this.file));
 		}
 		while (true) {
-			Thread.sleep(Long.MAX_VALUE);
+			Thread.sleep(Long.MAX_VALUE); // TODO
 		}
 	}
 

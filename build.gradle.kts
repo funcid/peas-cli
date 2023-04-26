@@ -17,3 +17,19 @@ dependencies {
 	compileOnly("org.checkerframework:checker-qual:3.33.0")
 	annotationProcessor("org.checkerframework:checker-qual:3.33.0")
 }
+
+tasks {
+	withType<JavaCompile>().configureEach {
+		options.run {
+			encoding = Charsets.UTF_8.name()
+			compilerArgs.addAll(listOf(
+				"--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
+				"--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+			))
+		}
+	}
+	withType<AbstractArchiveTask>().configureEach {
+		isReproducibleFileOrder = true
+		isPreserveFileTimestamps = false
+	}
+}
