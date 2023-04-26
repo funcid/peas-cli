@@ -189,8 +189,13 @@ public final class PeasApplication {
 			}
 		}, 0, 1, TimeUnit.SECONDS);
 
+		var progressPrinter = scheduler.scheduleWithFixedDelay(() -> {
+			System.out.println("Downloaded " + (partitionN.getOpaque() * 100) / file.partitions().length + '%');
+		}, 0, 500, TimeUnit.MILLISECONDS);
+
 		latch.arriveAndAwaitAdvance();
 		multicastSender.cancel(true);
+		progressPrinter.cancel(true);
 		try {
 			this.multicast.send(new Multicast.MulticastMessage(Multicast.MulticastMessage.Type.CANCEL, file.hash()));
 		} catch (IOException e) {
