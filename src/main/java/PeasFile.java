@@ -61,49 +61,4 @@ public record PeasFile(
 			output.flush();
 		}
 	}
-
-	public static void main(String[] args) throws Throwable {
-		Deencapsulation.init();
-
-		var path = Path.of("/home/u/IdeaProjects/peas-cli/samplefiles/unaligned");
-		try (var fc = FileChannel.open(path, StandardOpenOption.READ)) {
-			var partSize = 4096L; // 4K
-
-			var size = fc.size();
-			var mmap = fc.map(FileChannel.MapMode.READ_ONLY, 0, size);
-
-			if (size < partSize) {
-				partSize = size;
-			}
-
-			var partitions = new long[(int) MathUtil.divideRoundUp(size, partSize)]; // TODO: Big array
-			var n = 0;
-			var partitionN = 0;
-
-			do {
-				var currN = n;
-				n += partSize;
-				var hash = xx3().hashBytes(
-					mmap,
-					currN,
-					(int) (currN + partSize > size
-						? size - currN
-						: partSize)
-				);
-				partitions[partitionN++] = hash;
-			} while (n < size);
-
-			new PeasFile(
-				"unaligned",
-				size,
-				partSize,
-				xx3().hashBytes(mmap),
-				partitions,
-				LocalDateTime.now(),
-				new InetAddress[] { InetAddress.getByName("192.168.1.25") }
-			).save(Path.of("/tmp/unaligned.peas"));
-
-			jdk.internal.misc.Unsafe.getUnsafe().invokeCleaner(mmap);
-		}
-	}
 }

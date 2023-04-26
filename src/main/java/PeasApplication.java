@@ -71,21 +71,25 @@ public final class PeasApplication {
 		try {
 			var server = HttpServer.create(new InetSocketAddress(8686), 0);
 			server.createContext("/notify", exchange -> {
-				var req = new String(exchange.getRequestBody().readAllBytes());
-				var r = req.split("\\|");
-				if (r[0].equals("me")) {
-					var hash = Long.parseLong(r[1]);
-					var task = downloadTasks.get(hash);
-					var addr = exchange.getRemoteAddress().getAddress();
-					if (!Arrays.asList(task.left().owners()).contains(addr)) {
-						downloadPool.execute(() -> task.right().accept(exchange.getRemoteAddress().getAddress(), true));
-						System.out.println("Found new tracker for " + hash + ": " + exchange.getRemoteAddress().getAddress());
-					}
+				try {
+					var req = new String(exchange.getRequestBody().readAllBytes());
+					var r = req.split("\\|");
+					if (r[0].equals("me")) {
+						var hash = Long.parseLong(r[1]);
+						var task = downloadTasks.get(hash);
+						var addr = exchange.getRemoteAddress().getAddress();
+						if (!Arrays.asList(task.left().owners()).contains(addr)) {
+							downloadPool.execute(() -> task.right().accept(addr, true));
+							System.out.println("Found new tracker for " + hash + ": " + addr);
+						}
 
-					var res = "ok".getBytes(StandardCharsets.UTF_8);
-					exchange.sendResponseHeaders(200, res.length);
-					exchange.getResponseBody().write(res);
-					exchange.getResponseBody().close();
+						var res = "ok".getBytes(StandardCharsets.UTF_8);
+						exchange.sendResponseHeaders(200, res.length);
+						exchange.getResponseBody().write(res);
+						exchange.getResponseBody().close();
+					}
+				} catch (Exception e) {
+					e.printStackTrace();
 				}
 			});
 			server.createContext("/get", exchange -> {
