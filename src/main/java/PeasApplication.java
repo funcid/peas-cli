@@ -95,6 +95,14 @@ public final class PeasApplication {
 					var bytes = Long.parseLong(args.get("b"));
 					var offset = Long.parseLong(args.get("o"));
 
+					if (!this.files.containsKey(hash)) {
+						var b = "404".getBytes(StandardCharsets.UTF_8);
+						exchange.sendResponseHeaders(404, b.length);
+						exchange.getResponseBody().write(b);
+						exchange.getResponseBody().close();
+						return;
+					}
+
 					var mbb = this.openFiles.computeIfAbsent(hash, h -> {
 						try {
 							return MmapFile.mmap(this.files.get(h), false);

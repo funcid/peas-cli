@@ -2,16 +2,16 @@ import picocli.CommandLine;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 
-import java.net.NetworkInterface;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 import static picocli.CommandLine.Command;
 
-@Command(name = "peas")
+@Command(name = "peas", showEndOfOptionsDelimiterInUsageHelp = true)
 final class PeasCommand implements Callable<Integer> {
-	@Parameters(index = "0")
-	private Path file;
+	@Parameters
+	private List<Path> files = List.of();
 
 	@Option(names = "--daemon", negatable = true)
 	private boolean daemon = false; // true;
@@ -21,6 +21,10 @@ final class PeasCommand implements Callable<Integer> {
 
 	@Override
 	public Integer call() throws Exception {
+		if (files.isEmpty()) {
+			return -666;
+		}
+
 		Deencapsulation.init();
 
 		var app = new PeasApplication(
@@ -30,17 +34,32 @@ final class PeasCommand implements Callable<Integer> {
 		app.init();
 
 		if (this.upload) {
-			app.upload(PeasFile.from(this.file));
+			for (Path file : files) {
+				app.upload(PeasFile.from(file));
+			}
+			while (true) {
+				Thread.sleep(Long.MAX_VALUE); // TODO
+			}
 		} else {
-			app.download(PeasFile.from(this.file));
+			for (Path file : files) {
+				new Thread(() -> {
+					try {
+						app.download(PeasFile.from(file));
+					} catch (Exception e) {
+						throw new RuntimeException(e);
+					}
+				}).start();
+			}
 		}
-		while (true) {
-			Thread.sleep(Long.MAX_VALUE); // TODO
-		}
+
+		return 0;
 	}
 
 	public static void main(String... args) {
-		int exitCode = new CommandLine(new PeasCommand()).execute(args);
-		System.exit(exitCode);
+		var cmd = new CommandLine(new PeasCommand());
+		int exitCode = cmd.execute(args);
+		if (exitCode == -666) {
+			cmd.usage(System.out);
+		}
 	}
 }
