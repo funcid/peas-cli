@@ -11,6 +11,7 @@ dependencies {
 	implementation("com.esotericsoftware:kryo:5.4.0")
 	implementation("net.openhft:zero-allocation-hashing:0.16")
 
+	implementation("me.tongfei:progressbar:0.9.4")
 	implementation("info.picocli:picocli:4.7.3")
 	annotationProcessor("info.picocli:picocli-codegen:4.7.3")
 

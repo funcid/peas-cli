@@ -1,4 +1,6 @@
 import com.sun.net.httpserver.HttpServer;
+import me.tongfei.progressbar.ProgressBar;
+import me.tongfei.progressbar.ProgressBarStyle;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -10,6 +12,8 @@ import java.nio.MappedByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -80,7 +84,7 @@ public final class PeasApplication {
 						var addr = exchange.getRemoteAddress().getAddress();
 						if (!Arrays.asList(task.left().owners()).contains(addr)) {
 							downloadPool.execute(() -> task.right().accept(addr, true));
-							System.out.println("Found new tracker for " + hash + ": " + addr);
+							// System.out.println(AnsiCodes.CUR_SAVE + "\033[<1>A\r" + AnsiCodes.LINE_CLEAR + "Found new tracker for " + hash + ": " + addr + AnsiCodes.CUR_RESTORE + "\n");
 						}
 
 						var res = "ok".getBytes(StandardCharsets.UTF_8);
@@ -165,10 +169,31 @@ public final class PeasApplication {
 		}
 	}
 
+	private final Set<ProgressBar> progressBars = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
 	private void doDownload(PeasFile file, MappedByteBuffer buf) {
 		var partitionN = new AtomicInteger();
 
 		var latch = new Phaser(1);
+		var pb = new ProgressBar(
+			file.filename(),
+			100,
+			Integer.MAX_VALUE,
+			true,
+			false,
+			System.err,
+			ProgressBarStyle.ASCII,
+			"%",
+			1,
+			false,
+			null,
+			ChronoUnit.SECONDS,
+			0L,
+			Duration.ZERO
+		);
+		pb.setExtraMessage(AnsiCodes.COLOR_RED + "Downloading..." + AnsiCodes.COLOR_RESET);
+
+		progressBars.add(pb);
 
 		downloadTasks.put(file.hash(), new Pair<>(file, (tracker, reg) -> {
 			if (reg) {
@@ -201,6 +226,9 @@ public final class PeasApplication {
 					}
 
 					buf.put((int) (part * file.partitionSize()), body, 0, body.length);
+
+					pb.stepTo((partitionN.getOpaque() * 100L) / file.partitions().length);
+					progressBars.forEach(ProgressBar::refresh);
 				} catch (InterruptedException | URISyntaxException | IOException e) {
 					throw new RuntimeException(e);
 				}
@@ -221,19 +249,17 @@ public final class PeasApplication {
 			}
 		}, 0, 1, TimeUnit.SECONDS);
 
-		var progressPrinter = scheduler.scheduleWithFixedDelay(() -> {
-			System.out.println("Downloaded " + (partitionN.getOpaque() * 100) / file.partitions().length + '%');
-		}, 0, 500, TimeUnit.MILLISECONDS);
-
 		latch.arriveAndAwaitAdvance();
+		pb.stepTo(100);
+		pb.setExtraMessage(AnsiCodes.COLOR_GREEN + "Downloaded!" + AnsiCodes.COLOR_RESET);
+		progressBars.forEach(ProgressBar::refresh);
+		pb.close();
 		multicastSender.cancel(true);
-		progressPrinter.cancel(true);
 		try {
 			this.multicast.send(new Multicast.MulticastMessage(Multicast.MulticastMessage.Type.CANCEL, file.hash()));
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}
-		System.out.println("Downloaded!");
 		upload(file);
 	}
 
