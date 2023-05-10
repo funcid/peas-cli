@@ -27,15 +27,19 @@ import static net.openhft.hashing.LongHashFunction.xx3;
 @Command(
   name = "peas",
   mixinStandardHelpOptions = true,
+  synopsisSubcommandLabel = "[КОМАНДА]",
   subcommands = {
     PeasCommand.CreateCommand.class
   }
 )
 public class PeasCommand implements ThrowingRunnable<Exception> {
-  @Parameters
+  @Option(names = {"-h", "--help"}, usageHelp = true, description = "Показать это сообщение")
+  private boolean helpRequested;
+
+  @Parameters(description = "Файлы, которые нужно загрузить/выгрузить", paramLabel = "<файлы>")
   private Path[] files;
 
-  @Option(names = {"-u", "--upload"}, description = "Upload mode")
+  @Option(names = {"-u", "--upload"}, description = "Режим выгрузки")
   private boolean upload;
 
   @Spec
@@ -69,18 +73,21 @@ public class PeasCommand implements ThrowingRunnable<Exception> {
   @Command(
     name = "create",
     mixinStandardHelpOptions = true,
-    description = "Create .peas file"
+    description = "Создать .peas файл"
   )
   public static class CreateCommand implements ThrowingRunnable<Exception> {
 		static { Deencapsulation.init(); }
 
-    @Option(names = "--part-size", description = "Partition size")
+    @Option(names = {"-h", "--help"}, usageHelp = true, description = "Показать это сообщение")
+    private boolean helpRequested;
+
+    @Option(names = {"-s", "--part-size"}, description = "Размер блока", paramLabel = "SIZE")
     private long partSize = 16384;
 
-    @Option(names = "--owners", description = "File owners (default trackers)")
+    @Option(names = {"-w", "--owners"}, description = "Владельцы файла (трекеры по умолчанию)", paramLabel = "OWNERS")
     private String[] owners = new String[0];
 
-    @Parameters(index = "0", description = "File for which the peas file is to be created")
+    @Parameters(index = "0", description = "Файл, для которого должен быть создан .peas файл", paramLabel = "<файл>")
     private Path file;
 
     @Override
