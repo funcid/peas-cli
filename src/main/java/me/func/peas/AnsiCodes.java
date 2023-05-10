@@ -1,3 +1,5 @@
+package me.func.peas;
+
 public final class AnsiCodes {
 	private AnsiCodes() {}
 

@@ -1,3 +1,6 @@
+package me.func.peas;
+
+import me.func.peas.svm.DeencapsulationSubstitution;
 import sun.misc.Unsafe;
 
 import java.lang.invoke.MethodHandles;
@@ -5,9 +8,20 @@ import java.lang.invoke.MethodHandles;
 import static java.lang.invoke.MethodType.methodType;
 
 public final class Deencapsulation {
+	private static boolean initialized = false;
+
 	private Deencapsulation() {}
 
-	public static void init() { // TODO: SubstrateVM: Make nop substitution
+	/**
+	 * @see DeencapsulationSubstitution SubstrateVM nop substitution of this
+	 */
+	public static void init() {
+		if (!initialized) {
+			initialized = true;
+		} else {
+			return;
+		}
+
 		try {
 			var theUnsafeField = Unsafe.class.getDeclaredField("theUnsafe");
 			theUnsafeField.setAccessible(true);
@@ -20,14 +34,17 @@ public final class Deencapsulation {
 				unsafe.staticFieldOffset(implLookupField)
 			);
 
-			var m = IMPL_LOOKUP.findVirtual(
+			var implAddOpens = IMPL_LOOKUP.findVirtual(
 				Module.class,
 				"implAddOpens",
 				methodType(void.class, String.class)
 			);
 
-			m.invokeExact(Object.class.getModule(), "jdk.internal.misc");
-			m.invokeExact(Object.class.getModule(), "sun.nio.ch");
+			var module = Object.class.getModule();
+
+			implAddOpens.invokeExact(module, "jdk.internal.misc");
+			implAddOpens.invokeExact(module, "jdk.internal.ref");
+			implAddOpens.invokeExact(module, "sun.nio.ch");
 		} catch (Throwable t) {
 			throw new IllegalStateException(t);
 		}

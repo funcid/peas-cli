@@ -1,13 +1,19 @@
+package me.func.peas;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.MappedByteBuffer;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
 public record MmapFile(
 	FileChannel fc,
-	MappedByteBuffer buf
+	ByteBuf buf,
+	ByteBuffer nioBuffer
 ) implements AutoCloseable {
 	private static final StandardOpenOption[] READ_ONLY = new StandardOpenOption[]{StandardOpenOption.READ};
 	private static final StandardOpenOption[] READ_WRITE = new StandardOpenOption[]{StandardOpenOption.READ, StandardOpenOption.WRITE};
@@ -18,12 +24,16 @@ public record MmapFile(
 			writable ? READ_WRITE : READ_ONLY
 		);
 
+		var size = fc.size();
+
 		var buf = fc.map(
 			writable ? FileChannel.MapMode.READ_WRITE : FileChannel.MapMode.READ_ONLY,
 			0,
-			fc.size()
+			size
 		);
-		return new MmapFile(fc, buf);
+		var asNetty = Unpooled.wrappedBuffer(buf);
+		asNetty.setIndex(0, (int) size);
+		return new MmapFile(fc, asNetty, buf);
 	}
 
 	public static MmapFile mmap(RandomAccessFile raf, boolean writable) throws IOException {
@@ -34,12 +44,15 @@ public record MmapFile(
 			0,
 			raf.length()
 		);
-		return new MmapFile(fc, buf);
+		var asNetty = Unpooled.wrappedBuffer(buf);
+		asNetty.setIndex(0, (int) raf.length());
+		return new MmapFile(fc, asNetty, buf);
 	}
 
 	@Override
 	public void close() throws Exception {
-		jdk.internal.misc.Unsafe.getUnsafe().invokeCleaner(this.buf);
+		this.buf.release();
+		jdk.internal.misc.Unsafe.getUnsafe().invokeCleaner(this.nioBuffer);
 		this.fc.close();
 	}
 }

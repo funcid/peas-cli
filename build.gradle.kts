@@ -1,3 +1,5 @@
+@file:Suppress("UNUSED_VARIABLE")
+
 plugins {
 	java
 	id("com.github.johnrengelman.shadow") version "8.1.1"
@@ -17,14 +19,25 @@ dependencies {
 
 	compileOnly("org.checkerframework:checker-qual:3.33.0")
 	annotationProcessor("org.checkerframework:checker-qual:3.33.0")
+
+	implementation(libs.netty.buffer)
+	implementation(libs.netty.codec)
+	implementation(libs.netty.handler)
+	implementation(libs.netty.transport)
+
+	compileOnly("org.graalvm.sdk:graal-sdk:22.3.2") // SVM Substitutions
 }
 
 tasks {
+	shadowJar {
+		minimize()
+	}
 	withType<JavaCompile>().configureEach {
 		options.run {
 			encoding = Charsets.UTF_8.name()
 			compilerArgs.addAll(listOf(
 				"--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
+				"--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
 				"--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
 			))
 		}
@@ -32,5 +45,13 @@ tasks {
 	withType<AbstractArchiveTask>().configureEach {
 		isReproducibleFileOrder = true
 		isPreserveFileTimestamps = false
+	}
+}
+
+testing {
+	suites {
+		val test by getting(JvmTestSuite::class) {
+			useJUnitJupiter("5.9.3")
+		}
 	}
 }
