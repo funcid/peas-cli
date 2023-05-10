@@ -29,8 +29,17 @@ dependencies {
 }
 
 tasks {
+	assemble { dependsOn(shadowJar) }
 	shadowJar {
 		minimize()
+
+		manifest {
+			attributes(
+				"Main-Class" to "me.func.peas.cli.Main",
+				"Multi-Release" to "true",
+				"Automatic-Module-Name" to "me.func.peas"
+			)
+		}
 	}
 	withType<JavaCompile>().configureEach {
 		options.run {

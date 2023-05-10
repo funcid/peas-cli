@@ -28,6 +28,7 @@ import static net.openhft.hashing.LongHashFunction.xx3;
   name = "peas",
   mixinStandardHelpOptions = true,
   synopsisSubcommandLabel = "[КОМАНДА]",
+  description = "Загрузить/выгрузить файл",
   subcommands = {
     PeasCommand.CreateCommand.class
   }
