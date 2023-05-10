@@ -15,7 +15,7 @@ public final class Deencapsulation {
 	/**
 	 * @see DeencapsulationSubstitution SubstrateVM nop substitution of this
 	 */
-	public static void init() {
+	public synchronized static void init() {
 		if (!initialized) {
 			initialized = true;
 		} else {

@@ -66,17 +66,21 @@ public class PeasCommand implements ThrowingRunnable<Exception> {
     }
   }
 
-  @Command(name = "create")
+  @Command(
+    name = "create",
+    mixinStandardHelpOptions = true,
+    description = "Create .peas file"
+  )
   public static class CreateCommand implements ThrowingRunnable<Exception> {
 		static { Deencapsulation.init(); }
 
-    @Option(names = "--part-size")
-    private long partSize = 8192;
+    @Option(names = "--part-size", description = "Partition size")
+    private long partSize = 16384;
 
-    @Option(names = "--owners")
+    @Option(names = "--owners", description = "File owners (default trackers)")
     private String[] owners = new String[0];
 
-    @Parameters(index = "0")
+    @Parameters(index = "0", description = "File for which the peas file is to be created")
     private Path file;
 
     @Override

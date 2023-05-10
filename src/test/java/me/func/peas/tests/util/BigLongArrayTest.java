@@ -12,7 +12,7 @@ class BigLongArrayTest {
   }
 
   @Test
-  void testCreation() {
+  void creation() {
     var withCleaner = BigLongArray.withCleaner(12309);
     var withoutCleaner = BigLongArray.withoutCleaner(12309);
 
@@ -23,7 +23,7 @@ class BigLongArrayTest {
   }
 
   @Test
-  void testSet() {
+  void set() {
     var withCleaner = BigLongArray.withCleaner(12309);
     var withoutCleaner = BigLongArray.withoutCleaner(12309);
 
@@ -45,7 +45,7 @@ class BigLongArrayTest {
   }
 
   @Test
-  void testGet() {
+  void get() {
     var withCleaner = BigLongArray.withCleaner(128);
     var withoutCleaner = BigLongArray.withoutCleaner(128);
 
@@ -78,7 +78,7 @@ class BigLongArrayTest {
   }
 
   @Test
-  void testForEach() {
+  void forEach() {
     var withCleaner = BigLongArray.withCleaner(128);
     var withoutCleaner = BigLongArray.withoutCleaner(128);
 
